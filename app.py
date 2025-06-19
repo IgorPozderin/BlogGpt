@@ -7,170 +7,138 @@ import requests
 app = FastAPI()
 
 # Получаем API ключи из переменных окружения
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Устанавливаем ключ OpenAI из переменной окружения
-currentsapi_key = os.getenv("CURRENTS_API_KEY")  # Устанавливаем ключ Currents API из переменной окружения
-proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1")  # URL ProxyAPI с дефолтным значением
+openai.api_key = os.getenv("OPENAI_API_KEY")  # Ключ для доступа к OpenAI API
+currentsapi_key = os.getenv("CURRENTS_API_KEY")  # Ключ для доступа к Currents API
+proxyapi_url = os.getenv("PROXYAPI_URL", "https://api.proxyapi.ru/openai/v1")  # URL ProxyAPI
 
-# Проверяем, что оба API ключа заданы, иначе выбрасываем ошибку
+# Проверка наличия обязательных API ключей
 if not openai.api_key or not currentsapi_key:
-    raise ValueError("Переменные окружения OPENAI_API_KEY и CURRENTS_API_KEY должны быть установлены")
+    raise ValueError("Необходимо установить переменные окружения OPENAI_API_KEY и CURRENTS_API_KEY")
 
-# Конфигурация OpenAI для работы через ProxyAPI
-openai.api_base = proxyapi_url  # Переопределяем базовый URL для всех запросов OpenAI
-openai.api_version = "2023-05-15"  # Указываем версию API (может требоваться для ProxyAPI)
+# Конфигурация для работы через ProxyAPI
+openai.api_base = proxyapi_url  # Базовый URL для OpenAI запросов
+openai.api_version = "2023-05-15"  # Версия API для совместимости
 
 class Topic(BaseModel):
-    topic: str  # Модель данных для получения темы в запросе
+    topic: str  # Модель запроса с единственным полем 'topic'
 
-# Функция для получения последних новостей на заданную тему
 def get_recent_news(topic: str):
     """
-    Получает последние новости по заданной теме через CurrentsAPI.
+    Получает последние новости по заданной теме через Currents API.
     
-    Args:
+    Параметры:
         topic (str): Тема для поиска новостей
         
-    Returns:
-        str: Строка с заголовками новостей, разделенными переносами строк
+    Возвращает:
+        str: Заголовки новостей, разделенные переносами строк
     """
-    url = "https://api.currentsapi.services/v1/latest-news"  # URL API для получения новостей
+    url = "https://api.currentsapi.services/v1/latest-news"
     params = {
-        "language": "ru",  # Задаем язык новостей, можно изменить на 'en', 'ru', 'fr', 'de' и другие поддерживаемые языки
-        "АСУ ТП": topic,  # Основная тема для поиска (это главный параметр для изменения темы). АСУ ТП для поиска новостей
-        "category": "technology",  # Фильтр по категории (business, sports, entertainment и др.)
-        "country": "ru",  # Фильтр по стране
-        "page_size": 5  # Количество возвращаемых новостей (по умолчанию 5)
-        "apiKey": currentsapi_key  # Передаем API ключ CurrentsAPI
+        "language": "ru",  # Язык новостей (русский)
+        "keywords": topic,  # Ключевые слова для поиска (исправлено с 'АСУ ТП' на 'keywords')
+        "category": "technology",  # Категория новостей
+        "country": "ru",  # Страна
+        "page_size": 5,  # Количество возвращаемых новостей
+        "apiKey": currentsapi_key  # API ключ
     }
-    response = requests.get(url, params=params)  # Выполняем GET-запрос к API
     
-    if response.status_code != 200:
-        # Если статус код не 200, выбрасываем исключение с подробностями ошибки
-        raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {response.text}")
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        news_data = response.json().get("news", [])
+        if not news_data:
+            return "Свежих новостей по данной теме не найдено."
+            
+        return "\n".join([article["title"] for article in news_data[:5]])
     
-    # Извлекаем новости из ответа, если они есть
-    news_data = response.json().get("news", [])
-    if not news_data:
-        return "Свежих новостей не найдено."  # Сообщение, если новости отсутствуют
-    
-    # Возвращаем заголовки первых 5 новостей, разделенных переносами строк
-    return "\n".join([article["title"] for article in news_data[:5]])
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при запросе новостей: {str(e)}")
 
-# Функция для генерации контента на основе темы и новостей
 def generate_content(topic: str):
     """
-    Генерирует контент (заголовок, описание и текст статьи) по заданной теме.
+    Генерирует контент на основе темы и актуальных новостей.
     
-    Args:
+    Параметры:
         topic (str): Тема для генерации контента
         
-    Returns:
-        dict: Словарь сгенерированного контента (title, meta_description, post_content)
+    Возвращает:
+        dict: Сгенерированный контент (заголовок, описание, текст статьи)
     """
-    recent_news = get_recent_news(topic)  # Получаем последние новости по теме
+    recent_news = get_recent_news(topic)
 
     try:
-        # Генерация заголовка для статьи через ProxyAPI
+        # Генерация заголовка
         title = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Используем модель GPT-4o-mini (через ProxyAPI может быть доступна другая версия)
-            messages=[{
-                "role": "user", 
-                "content": f"Придумайте привлекательный и точный заголовок для статьи на тему '{topic}', с учётом актуальных новостей:\n{recent_news}. Заголовок должен быть интересным и ясно передавать суть темы."
-            }],
-            max_tokens=60,  # Ограничиваем длину ответа
-            temperature=0.5,  # Умеренная случайность
-            stop=["\n"],  # Прерывание на новой строке
-            timeout=15  # Таймаут запроса в секундах
-        ).choices[0].message.content.strip()
-
-        # Генерация мета-описания для статьи
-        meta_description = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[{
-                "role": "user", 
-                "content": f"Напишите мета-описание для статьи с заголовком: '{title}'. Оно должно быть полным, информативным и содержать основные ключевые слова."
+                "role": "user",
+                "content": f"Создайте заголовок для статьи на тему '{topic}' с учетом новостей:\n{recent_news}"
             }],
-            max_tokens=120,  # Увеличиваем лимит токенов для полного ответа
+            max_tokens=60,
             temperature=0.5,
-            stop=["."],
             timeout=15
         ).choices[0].message.content.strip()
 
-        # Генерация полного контента статьи
+        # Генерация описания
+        meta_description = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": f"Напишите SEO-описание для статьи '{title}'"
+            }],
+            max_tokens=120,
+            temperature=0.5,
+            timeout=15
+        ).choices[0].message.content.strip()
+
+        # Генерация основного текста
         post_content = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[{
-                "role": "user", 
-                "content": f"""Напишите подробную статью на тему '{topic}', используя последние новости:\n{recent_news}. 
-                Статья должна быть:
-                1. Информативной и логичной
-                2. Содержать не менее 1500 символов
-                3. Иметь четкую структуру с подзаголовками
-                4. Включать анализ текущих трендов
-                5. Иметь вступление, основную часть и заключение
-                6. Включать примеры из актуальных новостей
-                7. Каждый абзац должен быть не менее 3-4 предложений
-                8. Текст должен быть легким для восприятия и содержательным"""
+                "role": "user",
+                "content": f"Напишите развернутую статью на тему '{topic}'. Требования:\n1. 1500+ символов\n2. Структура с подзаголовками\n3. Анализ трендов\n4. Примеры из новостей:\n{recent_news}"
             }],
-            max_tokens=1500,  # Лимит токенов для развернутого текста
+            max_tokens=1500,
             temperature=0.5,
-            presence_penalty=0.6,  # Штраф за повторение фраз
-            frequency_penalty=0.6,
-            timeout=30  # Увеличенный таймаут для длинного контента
+            timeout=30
         ).choices[0].message.content.strip()
 
-        # Возвращаем сгенерированный контент
         return {
             "title": title,
             "meta_description": meta_description,
             "post_content": post_content
         }
-    
+
     except requests.exceptions.Timeout:
-        # Обработка ошибки таймаута
-        raise HTTPException(status_code=504, detail="Превышено время ожидания ответа от ProxyAPI")
+        raise HTTPException(status_code=504, detail="Таймаут при запросе к OpenAI")
     except Exception as e:
-        # Обрабатываем другие ошибки генерации
-        raise HTTPException(status_code=500, detail=f"Ошибка при генерации контента: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации: {str(e)}")
 
 @app.post("/generate-post")
 async def generate_post_api(topic: Topic):
-    """
-    API endpoint для генерации контента по заданной теме.
-    
-    Args:
-        topic (Topic): Объект с полем 'topic' содержащим тему для генерации
-        
-    Returns:
-        dict: Сгенерированный контент или сообщение об ошибке
-    """
+    """Endpoint для генерации контента по теме"""
     return generate_content(topic.topic)
 
 @app.get("/", methods=["GET", "HEAD"])
 async def root():
-    """
-    Корневой эндпоинт для проверки работоспособности сервиса.
-    """
-    return {"message": "Сервис запущен"}
+    """Основной endpoint для проверки работы сервиса"""
+    return {"message": "Сервис генерации контента работает"}
 
 @app.get("/health", methods=["GET", "HEAD"])
 async def health_check():
-    """
-    Эндпоинт проверки состояния сервиса (healthcheck).
-    """
-    return {"status": "Все Oтлично!"}
+    """Endpoint для проверки здоровья сервиса"""
+    return {"status": "OK", "details": "Сервис функционирует нормально"}
 
 if __name__ == "__main__":
     import uvicorn
-    # Запуск приложения с указанием порта
-    port = int(os.getenv("PORT", 8000)) # Порт из переменной окружения или 8000 по умолчанию
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=port,
-        # Добавьте эти параметры для стабильности
         workers=1,
         timeout_keep_alive=30,
         log_level="info"
     )
-
+    
