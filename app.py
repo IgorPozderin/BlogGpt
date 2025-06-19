@@ -69,7 +69,7 @@ def generate_content(topic: str):
     try:
         # Генерация заголовка для статьи через ProxyAPI
         title = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Используем модель GPT-4 (через ProxyAPI может быть доступна другая версия)
+            model="gpt-4o-mini",  # Используем модель GPT-4o-mini (через ProxyAPI может быть доступна другая версия)
             messages=[{
                 "role": "user", 
                 "content": f"Придумайте привлекательный и точный заголовок для статьи на тему '{topic}', с учётом актуальных новостей:\n{recent_news}. Заголовок должен быть интересным и ясно передавать суть темы."
@@ -143,23 +143,31 @@ async def generate_post_api(topic: Topic):
     """
     return generate_content(topic.topic)
 
-@app.get("/")
+@app.get("/", methods=["GET", "HEAD"])
 async def root():
     """
     Корневой эндпоинт для проверки работоспособности сервиса.
     """
-    return {"message": "Service is running"}
+    return {"message": "Сервис запущен"}
 
-@app.get("/heartbeat")
-async def heartbeat_api():
+@app.get("/health", methods=["GET", "HEAD"])
+async def health_check():
     """
     Эндпоинт проверки состояния сервиса (healthcheck).
     """
-    return {"status": "OK"}
+    return {"status": "Все Oтлично!"}
 
 if __name__ == "__main__":
     import uvicorn
     # Запуск приложения с указанием порта
-    port = int(os.getenv("PORT", 8000))  # Порт из переменной окружения или 8000 по умолчанию
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)  # Добавлен reload для разработки
+    port = int(os.getenv("PORT", 8000)) # Порт из переменной окружения или 8000 по умолчанию
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        # Добавьте эти параметры для стабильности
+        workers=1,
+        timeout_keep_alive=30,
+        log_level="info"
+    )
 
