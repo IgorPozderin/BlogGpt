@@ -35,8 +35,11 @@ def get_recent_news(topic: str):
     """
     url = "https://api.currentsapi.services/v1/latest-news"  # URL API для получения новостей
     params = {
-        "language": "en",  # Задаем язык новостей (английский)
-        "keywords": topic,  # Ключевые слова для поиска новостей
+        "language": "ru",  # Задаем язык новостей, можно изменить на 'en', 'ru', 'fr', 'de' и другие поддерживаемые языки
+        "АСУ ТП": topic,  # Основная тема для поиска (это главный параметр для изменения темы). АСУ ТП для поиска новостей
+        "category": "technology",  # Фильтр по категории (business, sports, entertainment и др.)
+        "country": "ru",  # Фильтр по стране
+        "page_size": 5  # Количество возвращаемых новостей (по умолчанию 5)
         "apiKey": currentsapi_key  # Передаем API ключ CurrentsAPI
     }
     response = requests.get(url, params=params)  # Выполняем GET-запрос к API
